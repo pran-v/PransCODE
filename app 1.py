@@ -425,27 +425,30 @@ def main() -> None:
     st.header("Add Match Result")
     date = st.date_input("Match Date", value=datetime.today())
     stage = st.selectbox("Stage", options=[GROUP_STAGE, KNOCKOUT_STAGE])
-    team_a = st.selectbox(
-        "Team A",
-        options=sorted(TEAMS),
-    )
-    if stage == GROUP_STAGE:
-        team_a_group = TEAM_TO_GROUP.get(team_a)
-        if team_a_group:
-            team_b_options = [
-                t
-                for t in sorted(GROUPS[team_a_group])
-                if t != team_a
-            ]
-        else:
-            team_b_options = [t for t in sorted(TEAMS) if t != team_a]
-    else:
-        team_b_options = [t for t in sorted(TEAMS) if t != team_a]
-    team_b = st.selectbox("Team B", options=team_b_options)
+    
     col1, col2 = st.columns(2)
     with col1:
+        team_a = st.selectbox(
+            "Team A",
+            options=sorted(TEAMS),
+        )
         score_a = st.number_input("Team A Score", min_value=0, step=1)
+
     with col2:
+        if stage == GROUP_STAGE:
+            team_a_group = TEAM_TO_GROUP.get(team_a)
+            if team_a_group:
+                team_b_options = [
+                    t
+                    for t in sorted(GROUPS[team_a_group])
+                    if t != team_a
+                ]
+            else:
+                team_b_options = [t for t in sorted(TEAMS) if t != team_a]
+        else:
+            team_b_options = [t for t in sorted(TEAMS) if t != team_a]
+
+        team_b = st.selectbox("Team B", options=team_b_options)
         score_b = st.number_input("Team B Score", min_value=0, step=1)
 
     submit_match = st.button("Add Match")
@@ -458,6 +461,10 @@ def main() -> None:
             st.error("Both team names are required.")
         elif team_a_name == team_b_name:
             st.error("Teams must be different.")
+        elif stage == GROUP_STAGE and date > datetime(2026, 6, 27).date():
+            st.error("Group stage matches cannot be after June 27th, 2026.")
+        elif stage == KNOCKOUT_STAGE and date < datetime(2026, 6, 28).date():
+            st.error("Knockout matches cannot be before June 28th, 2026.")
         elif stage == GROUP_STAGE and TEAM_TO_GROUP.get(team_a_name) != TEAM_TO_GROUP.get(
             team_b_name
         ):
