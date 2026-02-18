@@ -4,6 +4,7 @@ from pathlib import Path
 
 import pandas as pd
 import streamlit as st
+import altair as alt
 
 APP_TITLE = "Fantasy World Cup Tracker"
 DATA_DIR = Path(__file__).parent / "data"
@@ -278,6 +279,56 @@ def _compute_participant_points(points_df: pd.DataFrame, picks: pd.DataFrame) ->
     return summary_df.reset_index(drop=True)
 
 
+def _compute_team_points_over_time(matches: pd.DataFrame) -> pd.DataFrame:
+    if matches.empty:
+        return pd.DataFrame(columns=["date", "team", "points"])
+
+    df = matches.copy()
+    df["date"] = pd.to_datetime(df["date"])
+    df = df.sort_values("date")
+
+    cumulative = {}
+    rows = []
+    # iterate match-by-match accumulating points
+    for _, row in df.iterrows():
+        if row["team_a"] == "" or row["team_b"] == "":
+            continue
+        match_pts = _match_points(row)
+        for team, pts in match_pts.items():
+            cumulative[team] = cumulative.get(team, 0) + pts
+        for team, pts in cumulative.items():
+            rows.append({"date": row["date"], "team": team, "points": pts})
+
+    if not rows:
+        return pd.DataFrame(columns=["date", "team", "points"])
+
+    out = pd.DataFrame(rows)
+    out = out.sort_values(["team", "date"]).reset_index(drop=True)
+    return out
+
+
+def _compute_participant_points_over_time(team_points_time: pd.DataFrame, picks: pd.DataFrame) -> pd.DataFrame:
+    if team_points_time.empty or picks.empty:
+        return pd.DataFrame(columns=["date", "participant", "points"])
+
+    # pivot team_points_time so we can sum participant teams per date
+    # team_points_time has rows for each match date and team with cumulative points
+    # For each date, sum the points for the teams each participant picked
+    picks_map = picks.groupby("participant")["team"].apply(list).to_dict()
+    rows = []
+    for date, group in team_points_time.groupby("date"):
+        points_by_team = dict(zip(group["team"], group["points"]))
+        for participant, teams in picks_map.items():
+            total = sum(points_by_team.get(_normalize_team_name(t), 0) for t in teams)
+            rows.append({"date": date, "participant": participant, "points": total})
+
+    out = pd.DataFrame(rows)
+    if out.empty:
+        return out
+    out = out.sort_values(["participant", "date"]).reset_index(drop=True)
+    return out
+
+
 
 
 def _ensure_data_dir() -> None:
@@ -465,6 +516,38 @@ def main() -> None:
 
             st.dataframe(team_points.style.apply(_style_team_points_row, axis=1), width="stretch")
 
+
+    st.divider()
+    st.header("Points Over Time")
+    # compute cumulative points over time and participant totals
+    team_points_time = _compute_team_points_over_time(matches)
+    participant_points_time = _compute_participant_points_over_time(team_points_time, picks)
+
+    if participant_points_time.empty:
+        st.info("Not enough data yet to show points over time.")
+    else:
+        participant_points_time["date"] = pd.to_datetime(participant_points_time["date"])
+        # ensure participant color mapping covers participants present in picks
+        domains = list(participant_colors.keys())
+        ranges = [participant_colors.get(p) for p in domains]
+
+        chart = (
+            alt.Chart(participant_points_time)
+            .mark_line(point=True)
+            .encode(
+                x=alt.X("date:T", title="Date"),
+                y=alt.Y("points:Q", title="Points"),
+                color=alt.Color(
+                    "participant:N",
+                    scale=alt.Scale(domain=domains, range=ranges),
+                    legend=alt.Legend(title="Participant"),
+                ),
+                tooltip=[alt.Tooltip("date:T", title="Date"), "participant:N", "points:Q"],
+            )
+            .interactive()
+        )
+
+        st.altair_chart(chart, use_container_width=True)
 
     st.divider()
     st.header("Match Log")
